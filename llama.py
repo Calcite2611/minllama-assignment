@@ -44,7 +44,11 @@ class RMSNorm(torch.nn.Module):
             torch.Tensor: The normalized tensor.
         """
         # todo
-        raise NotImplementedError
+        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        # dim=-1 は、「各単語ベクトル（Embedding）の内側だけで完結して正規化を行い、他の単語やバッチの影響を受けないようにする」ための指定。
+        # Shape = (Batch Size, Sequence Length, Embedding Dimension)
+        # dim=-1 は、RMSNormやLayerNormの実装においてRMSNormの目的は、バッチ内の他のデータや、文脈内の他の単語に依存せず、「ある1つの単語ベクトル（特徴量）の中で」スケーリングを整えることなので計算は Embedding Dimension の方向に行う必要がある。
+        return x / rms
 
     def forward(self, x):
         """
@@ -93,8 +97,31 @@ class Attention(nn.Module):
         Make sure to use attention_dropout (self.attn_dropout) on the computed
         attention matrix before applying it to the value tensor.
         '''
+        # bs: batch size
+        # n_local_heads: マルチヘッドアテンションのヘッド数
+        # seqlen: 文書のトークン数
+        # head_dim: 1つのヘッドが扱うベクトルの次元数
         # todo
-        raise NotImplementedError
+        d_k = query.size(-1)
+        # Attention Score (Q @ K^T) の計算
+        # transpose(-2, -1) は最後の2つの次元を入れ替える操作
+        # 行列積: (seqlen, head_dim) x (head_dim, seqlen) -> (seqlen, seqlen)
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        # 4次元の行列積（torch.matmul）におけるルール：前半の次元はただの『場所合わせ』、後半の2次元だけが『計算』に関与する
+        scores = scores / math.sqrt(d_k)
+
+        # マスクの作成 ここからの３行はスコア下がれば消去する
+        seqlen = query.size(-1)
+        # 未来のトークンに注意を払わないようにするための下三角行列
+        mask = torch.tril(torch.ones(seqlen, seqlen, device=scores.device))
+        # maskが0の部分（未来）を -inf に置き換える
+        scores = scores.masked_fill(mask == 0, float('-inf'))
+
+        attn_weights = torch.nn.functional.softmax(scores, dim=-1)
+        attn_weights = self.attn_dropout(attn_weights)
+        output = torch.matmul(attn_weights, value)
+        return output
+
 
     def forward(
         self,
