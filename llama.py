@@ -102,6 +102,8 @@ class Attention(nn.Module):
         # seqlen: 文書のトークン数
         # head_dim: 1つのヘッドが扱うベクトルの次元数
         # todo
+        # query/key/value: (bs, n_heads, seqlen, head_dim)
+        # d_k : head_dim
         d_k = query.size(-1)
         # Attention Score (Q @ K^T) の計算
         # transpose(-2, -1) は最後の2つの次元を入れ替える操作
@@ -111,14 +113,22 @@ class Attention(nn.Module):
         scores = scores / math.sqrt(d_k)
 
         # マスクの作成 ここからの３行はスコア下がれば消去する
-        seqlen = query.size(-1)
+        seqlen = query.size(-2)
         # 未来のトークンに注意を払わないようにするための下三角行列
-        mask = torch.tril(torch.ones(seqlen, seqlen, device=scores.device))
-        # maskが0の部分（未来）を -inf に置き換える
-        scores = scores.masked_fill(mask == 0, float('-inf'))
 
-        attn_weights = torch.nn.functional.softmax(scores, dim=-1)
+        mask = torch.tril(torch.ones((seqlen, seqlen), dtype=torch.bool, device=scores.device))
+        # ブロードキャストのために (1,1,seqlen,seqlen) にする
+        mask = mask.view(1, 1, seqlen, seqlen)
+        # masked_fill に finite な大きな負値を使う（FP16で-infが問題になることがあるため）
+        neg_inf = -1e9
+        scores = scores.masked_fill(~mask, neg_inf)
+
+        # softmax は数値安定性のため float32 で計算し、元の dtype に戻す
+        scores_dtype = scores.dtype
+        attn_weights = torch.softmax(scores.float(), dim=-1).type_as(scores)
         attn_weights = self.attn_dropout(attn_weights)
+
+        # attention を value に適用して出力を得る
         output = torch.matmul(attn_weights, value)
         return output
 
