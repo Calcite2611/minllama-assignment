@@ -1,0 +1,5 @@
+llama_hw/*
+.python-version
+.vscode/
+.DS_Store
+__pycache__/
