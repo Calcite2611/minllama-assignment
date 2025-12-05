@@ -4,3 +4,4 @@ llama_hw/*
 .DS_Store
 __pycache__/
 .venv/
+stories42M.pt
