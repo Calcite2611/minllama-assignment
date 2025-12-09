@@ -29,7 +29,7 @@ class AdamW(Optimizer):
         loss = None
         if closure is not None:
             loss = closure()
-
+        
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None:
@@ -38,23 +38,41 @@ class AdamW(Optimizer):
                 if grad.is_sparse:
                     raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
 
-                raise NotImplementedError()
-
                 # State should be stored in this dictionary
                 state = self.state[p]
+                if len(state) == 0:
+                    # Initialize state
+                    state["step"] = 0
+                    state["momentum"] = torch.zeros_like(p.data)
+                    state["velocity"] = torch.zeros_like(p.data)
 
                 # Access hyperparameters from the `group` dictionary
                 alpha = group["lr"]
 
                 # Update first and second moments of the gradients
+                t = state["step"]
+                beta1, beta2 = group["betas"]
+                momentum = state["momentum"]
+                velocity = state["velocity"]
+
+                t += 1
+                momentum = beta1 * momentum + (1 - beta1) * grad
+                velocity = beta2 * velocity + (1 - beta2) * (grad * grad)
 
                 # Bias correction
                 # Please note that we are using the "efficient version" given in
                 # https://arxiv.org/abs/1412.6980
+                alpha_t = alpha * (1 - beta2 ** t)**0.5 / (1 - beta1 ** t)
+                p.data -= alpha_t * momentum / (torch.sqrt(velocity) + group["eps"])
 
                 # Update parameters
+                state["step"] = t
+                state["momentum"] = momentum
+                state["velocity"] = velocity
 
                 # Add weight decay after the main gradient-based updates.
                 # Please note that the learning rate should be incorporated into this update.
+                if group["weight_decay"] != 0:
+                    p.data -= alpha * group["weight_decay"] * p.data
 
         return loss
