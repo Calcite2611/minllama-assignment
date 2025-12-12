@@ -233,8 +233,14 @@ class LlamaLayer(nn.Module):
         5) add a residual connection from the unnormalized self-attention output to the
            output of the feed-forward network
         '''
-        # todo
-        raise NotImplementedError
+        attn_input = self.attention_norm(x) # xレイヤーの入力を正規化
+        attn_output = self.attention(attn_input) # 正規化したものをAttentionに通す
+        h = x + attn_output # 残差接続1
+
+        ffn_input = self.ffn_norm(h) # Attentionの出力を正規化
+        ffn_output = self.feed_forward(ffn_input) # 正規化したものをFeedForwardに通す
+        out = h + ffn_output # 残差接続2
+        return out
 
 class Llama(LlamaPreTrainedModel):
     def __init__(self, config: LlamaConfig):
@@ -310,12 +316,10 @@ class Llama(LlamaPreTrainedModel):
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] # crop to just the final time step
-            # todo
-            raise NotImplementedError
 
             if temperature == 0.0:
                 # select the single most likely index
-                idx_next = None
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True) # 温度が0の時は、貪欲法に従い、単に最も確率の高いトークンを選択する
             else:
                 '''
                 Perform temperature sampling:
@@ -326,7 +330,10 @@ class Llama(LlamaPreTrainedModel):
 
                 Note that we are not using top-k sampling/nucleus sampling in this procedure.
                 '''
-                idx_next = None
+                logits_scaled = logits / temperature # 温度でlogitsをスケーリングする
+                probs = F.softmax(logits_scaled, dim=-1) # スケーリングされたlogitsをsoftmaxで正規化して確率分布を得る
+                idx_next = torch.multinomial(probs, num_samples=1) # 温度が0でない時は、確率分布に基づいてトークンをサンプリングする
+
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
